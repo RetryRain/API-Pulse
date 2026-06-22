@@ -1,0 +1,139 @@
+@{
+    ViewData["Title"] = "API Security Audit";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/api-analyzer.css" asp-append-version="true" />
+}
+
+<div class="api-analyzer">
+    <div class="api-analyzer__inner">
+        <header class="api-analyzer__header">
+            <div>
+                <h1 class="api-analyzer__title">API Security Audit</h1>
+                <p class="api-analyzer__subtitle">Probe a live endpoint and check its HTTP security posture</p>
+            </div>
+        </header>
+
+        <form id="securityForm" class="api-analyzer__toolbar" autocomplete="off">
+            <div class="field">
+                <label for="method">Method</label>
+                <select id="method" name="method" class="api-analyzer__select">
+                    <option value="GET" selected>GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                </select>
+            </div>
+            <div class="field field--grow">
+                <label for="targetUrl">API / web URL to audit</label>
+                <input type="text" id="targetUrl" name="targetUrl"
+                       class="api-analyzer__input"
+                       placeholder="https://api.example.com/v1/resource" />
+                <span class="field__hint">The scanner sends one request with the selected method and inspects the real response headers, TLS and cookies.</span>
+            </div>
+            <button type="submit" class="api-analyzer__btn">Scan</button>
+
+            <!-- Bearer token, always available so authenticated GETs can be audited too -->
+            <div class="field field--full">
+                <label for="bearerToken">Authorization <span class="field__opt">(Bearer token, optional)</span></label>
+                <div class="sec-token">
+                    <input type="password" id="bearerToken" name="bearerToken"
+                           class="api-analyzer__input sec-token__input" autocomplete="off"
+                           placeholder="Paste a token or use {{variable}} — &quot;Bearer &quot; is added for you" />
+                    <button type="button" class="sec-token__toggle" id="bearerToggle"
+                            aria-label="Show or hide token" title="Show / hide">👁</button>
+                </div>
+                <span class="field__hint">Sent as <code>Authorization: Bearer &lt;token&gt;</code>. Paste only the token (no "Bearer " prefix), or reference a variable like <code>{{B2C}}</code>. Credentials are never stored or logged.</span>
+            </div>
+
+            <!-- Bruno-style environment variables: define once, reference anywhere with {{name}} -->
+            <details class="field field--full sec-vars" id="secVars">
+                <summary class="sec-vars__summary">
+                    Environment variables
+                    <span class="field__opt">use <code>{{name}}</code> in the URL, token, headers or body</span>
+                    <span class="sec-vars__count" id="secVarsCount"></span>
+                </summary>
+                <div class="sec-vars__body">
+                    <div class="sec-vars__list" id="secVarsList"></div>
+                    <button type="button" class="sec-vars__add" id="secVarsAdd">+ Add variable</button>
+                    <span class="field__hint">Saved in this browser so you can reuse them like Bruno environments. For example add <code>base_url</code> = <code>https://api.example.com</code> and <code>B2C</code> = your token, then use <code>{{base_url}}/resource</code> and <code>{{B2C}}</code>.</span>
+                </div>
+            </details>
+
+            <!-- Body + headers, shown for methods that carry a payload (POST/PUT/PATCH) -->
+            <div class="field field--full sec-request-extras" id="requestExtras" hidden>
+                <div class="sec-request-extras__grid">
+                    <div class="field">
+                        <div class="sec-body__head">
+                            <label for="requestBody">Request body <span class="field__opt">(optional)</span></label>
+                            <div class="sec-body__actions">
+                                <span class="sec-body__status" id="bodyStatus"></span>
+                                <button type="button" class="sec-body__btn" id="bodyFormat" title="Pretty-print the JSON">Format JSON</button>
+                            </div>
+                        </div>
+                        <textarea id="requestBody" name="requestBody" class="api-analyzer__input sec-textarea sec-code"
+                                  rows="8" spellcheck="false" wrap="off" placeholder='{&#10;  "name": "example"&#10;}'></textarea>
+                        <span class="field__hint">Sent as the request payload. You can reference <code>{{variables}}</code>.</span>
+                    </div>
+                    <div class="field">
+                        <label for="requestHeaders">Additional headers <span class="field__opt">(one per line, Name: Value)</span></label>
+                        <textarea id="requestHeaders" name="requestHeaders" class="api-analyzer__input sec-textarea sec-code"
+                                  rows="8" spellcheck="false" wrap="off" placeholder="X-Api-Key: {{apiKey}}&#10;X-Tenant-Id: contoso"></textarea>
+                        <span class="field__hint">For any non-Bearer headers. An Authorization line here overrides the token field above.</span>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="contentType">Content-Type</label>
+                    <input type="text" id="contentType" name="contentType" class="api-analyzer__input"
+                           value="application/json" placeholder="application/json" />
+                </div>
+            </div>
+        </form>
+
+        <!-- Loading state -->
+        <div class="detail__loading" id="securityLoading" hidden>
+            <span class="spinner spinner--lg"></span>
+            <p>Probing the endpoint and auditing its response…</p>
+        </div>
+
+        <!-- Error state -->
+        <div class="api-analyzer__alert" id="securityError" hidden></div>
+
+        <!-- Results -->
+        <div id="securityContent" hidden>
+            <section class="api-analyzer__cards" id="securitySummary"></section>
+
+            <section class="api-modal__ai detail__ai" id="securityAiSection" hidden>
+                <div class="api-modal__ai-head">
+                    <span class="api-modal__ai-badge">AI security overview</span>
+                    <div class="api-modal__score" id="securityAiConfidence"></div>
+                </div>
+                <p class="api-modal__ai-summary" id="securityAiSummary"></p>
+                <ul class="api-modal__suggestions" id="securityAiPriorities"></ul>
+            </section>
+
+            <div class="sec-findings" id="securityFindings"></div>
+
+            <p class="api-analyzer__footnote" id="securityFootnote"></p>
+        </div>
+
+        <!-- Empty / first-load state -->
+        <section class="api-analyzer__empty" id="securityEmpty">
+            <div class="api-analyzer__empty-icon">🛡</div>
+            <h2 class="api-analyzer__empty-title">Audit an API's security posture</h2>
+            <p class="api-analyzer__empty-text">
+                Enter an API or web URL above and select Scan. The audit reports missing security
+                headers (CSP, HSTS, X-Content-Type-Options, clickjacking protection), weak cookie
+                flags, permissive CORS and information disclosure — each as a detailed issue with
+                impact, recommendation and a CWE reference.
+            </p>
+        </section>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/security-vars.js" asp-append-version="true"></script>
+    <script src="~/js/security.js" asp-append-version="true"></script>
+}

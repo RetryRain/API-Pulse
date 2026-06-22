@@ -1,0 +1,166 @@
+@model EndpointDetailViewModel
+@{
+    ViewData["Title"] = "Endpoint detail";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/api-analyzer.css" asp-append-version="true" />
+}
+
+<div class="api-analyzer"
+     data-workspace="@Model.WorkspaceId"
+     data-operation="@Model.Operation"
+     data-window="@Model.WindowHours"
+     data-custom-start="@(Model.HasCustomRange ? Model.CustomStart!.Value.UtcDateTime.ToString("o") : "")"
+     data-custom-end="@(Model.HasCustomRange ? Model.CustomEnd!.Value.UtcDateTime.ToString("o") : "")">
+    <div class="api-analyzer__inner">
+        <header class="api-analyzer__header">
+            <div>
+                <a class="detail__back" asp-controller="ApiAnalyzer" asp-action="Index"
+                   asp-route-WorkspaceId="@Model.WorkspaceId"
+                   asp-route-ApiFilter="@Model.ApiFilter"
+                   asp-route-WindowHours="@Model.WindowHours"
+                   asp-route-CustomStart="@(Model.HasCustomRange ? Model.CustomStart!.Value.UtcDateTime.ToString("o") : null)"
+                   asp-route-CustomEnd="@(Model.HasCustomRange ? Model.CustomEnd!.Value.UtcDateTime.ToString("o") : null)">← Back to dashboard</a>
+                <h1 class="api-analyzer__title detail__title" id="detailTitle">@Model.Operation</h1>
+                <p class="api-analyzer__subtitle">
+                    <span id="detailRangeLabel">@(Model.HasCustomRange ? "Custom range" : $"Deep dive over the last {Model.WindowHours} h")</span>
+                    <span class="api-analyzer__health" id="detailHealth"></span>
+                </p>
+            </div>
+            <div class="detail__header-actions">
+                <div class="timerange" id="timeRange">
+                    <button type="button" class="detail__action-btn" id="timeRangeBtn" aria-expanded="false" aria-haspopup="true">🕒 <span id="timeRangeBtnLabel">@(Model.HasCustomRange ? "Custom range" : $"Last {Model.WindowHours} h")</span></button>
+                    <div class="timerange__popover" id="timeRangePopover" hidden></div>
+                </div>
+                <button type="button" class="detail__action-btn" id="copyLinkBtn" hidden>🔗 Copy link</button>
+                <button type="button" class="detail__action-btn" id="exportCsvBtn" hidden>⬇ Export CSV</button>
+                <button type="button" class="detail__toggle-all" id="toggleAllBtn" aria-expanded="true" hidden>Collapse all</button>
+            </div>
+        </header>
+
+        <!-- Full-section loading state -->
+        <div class="detail__loading" id="detailLoading">
+            <span class="spinner spinner--lg"></span>
+            <p>Loading telemetry for this API…</p>
+        </div>
+
+        <!-- Error state -->
+        <div class="api-analyzer__alert" id="detailError" hidden></div>
+
+        <!-- Content (revealed when data arrives) -->
+        <div id="detailContent" hidden>
+            <section class="api-analyzer__cards" id="detailMetrics"></section>
+
+            <section class="api-modal__ai detail__ai">
+                <div class="api-modal__ai-head">
+                    <span class="api-modal__ai-badge api-modal__ai-badge--plain">Overview</span>
+                    <div class="api-modal__score" id="detailScore"></div>
+                </div>
+                <div class="api-modal__ai-table" id="detailOverview"></div>
+                <ul class="api-modal__suggestions" id="detailSuggestions"></ul>
+
+                <div class="detail__ai-actions">
+                    <button type="button" class="exc-card__ai" id="analyzeEndpointBtn">✨ Deep AI analysis of this API</button>
+                </div>
+                <div class="exc-card__aiResult" id="endpointAiResult" hidden></div>
+            </section>
+
+            <div class="detail__grid">
+                <details class="api-analyzer__panel" id="detailLatencySection" hidden open>
+                    <summary class="api-analyzer__panel-title">Response speed</summary>
+                    <div class="api-modal__latency" id="detailLatency"></div>
+                    <div class="barlist" id="detailBuckets"></div>
+                </details>
+
+                <details class="api-analyzer__panel" id="detailStatusSection" hidden open>
+                    <summary class="api-analyzer__panel-title">Status codes</summary>
+                    <div class="api-modal__statuscodes" id="detailStatus"></div>
+                </details>
+            </div>
+
+            <!-- Per-status-code failure analysis: one analyzable card per failing code -->
+            <details class="api-analyzer__panel" id="detailFailuresSection" hidden open>
+                <summary class="api-analyzer__panel-title">Failure analysis by status code</summary>
+                <div class="detail__failures-head">
+                    <p class="api-analyzer__panel-note">Each failing status code below is analyzed against its own correlated telemetry (failing URLs, exceptions and dependencies) to pinpoint the actual reason.</p>
+                    <button type="button" class="detail__analyze-all" id="analyzeAllFailuresBtn">✨ Analyze all failures</button>
+                </div>
+                <div id="detailFailures"></div>
+            </details>
+
+            <!-- Exceptions: friendly first, technical on demand -->
+            <details class="api-analyzer__panel" id="detailExceptionsSection" hidden open>
+                <summary class="api-analyzer__panel-title">Exceptions</summary>
+                <div id="detailExceptions"></div>
+            </details>
+
+            <div class="detail__grid">
+                <details class="api-analyzer__panel" id="detailDepsSection" hidden>
+                    <summary class="api-analyzer__panel-title">Dependencies</summary>
+                    <div class="mini-table-wrap">
+                        <table class="mini-table" id="detailDeps"></table>
+                    </div>
+                </details>
+
+                <details class="api-analyzer__panel" id="detailSamplesSection" hidden>
+                    <summary class="api-analyzer__panel-title">Slowest requests</summary>
+                    <div class="mini-table-wrap">
+                        <table class="mini-table" id="detailSamples"></table>
+                    </div>
+                </details>
+            </div>
+
+            <div class="detail__grid">
+                <details class="api-analyzer__panel" id="detailUrlsSection" hidden>
+                    <summary class="api-analyzer__panel-title">Top request URLs</summary>
+                    <div class="barlist" id="detailUrls"></div>
+                </details>
+
+                <details class="api-analyzer__panel" id="detailRolesSection" hidden>
+                    <summary class="api-analyzer__panel-title">Cloud roles</summary>
+                    <div class="barlist" id="detailRoles"></div>
+                </details>
+
+                <details class="api-analyzer__panel" id="detailGeoSection" hidden>
+                    <summary class="api-analyzer__panel-title">Client geography</summary>
+                    <div class="barlist" id="detailGeo"></div>
+                </details>
+            </div>
+
+            <details class="api-analyzer__panel" id="detailPropsSection" hidden>
+                <summary class="api-analyzer__panel-title">Properties &amp; custom dimensions</summary>
+                <div class="mini-table-wrap">
+                    <table class="mini-table kv-table" id="detailProps"></table>
+                </div>
+            </details>
+
+            <p class="api-analyzer__footnote">
+                Heuristic insights generated locally from telemetry — for guidance, not a guarantee.
+            </p>
+        </div>
+    </div>
+
+    <!-- Detailed cost analysis popup (kept inside .api-analyzer so the theme variables apply). -->
+    <div class="api-modal" id="costModal" role="dialog" aria-modal="true" aria-labelledby="costModalTitle" hidden>
+        <div class="api-modal__backdrop" data-cost-close></div>
+        <div class="api-modal__dialog cost-modal__dialog">
+            <button type="button" class="api-modal__close" data-cost-close aria-label="Close">&times;</button>
+            <p class="api-modal__eyebrow">Cost &amp; efficiency</p>
+            <h2 class="api-modal__title" id="costModalTitle">Cost &amp; efficiency analysis</h2>
+            <div id="costModalBody"></div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/workspace-store.js" asp-append-version="true"></script>
+    <script src="~/js/time-range-picker.js" asp-append-version="true"></script>
+    <script src="~/js/endpoint-detail.js" asp-append-version="true"></script>
+    <script>
+        (function () {
+            var ws = "@Model.WorkspaceId";
+            if (ws && window.WorkspaceStore) { window.WorkspaceStore.set(ws); }
+        })();
+    </script>
+}

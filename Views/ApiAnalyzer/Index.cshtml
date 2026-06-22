@@ -1,0 +1,434 @@
+@model ApiAnalyzerViewModel
+@{
+    ViewData["Title"] = "API Intelligence Hub";
+    var analytics = Model.Analytics;
+    var summary = analytics.Summary;
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/api-analyzer.css" asp-append-version="true" />
+}
+
+<div class="api-analyzer" data-workspace="@Model.WorkspaceId" data-window="@Model.WindowHours" data-filter="@Model.ApiFilter">
+    <div class="api-analyzer__inner">
+        <header class="api-analyzer__header">
+            <div>
+                <h1 class="api-analyzer__title">API Intelligence Hub</h1>
+                <p class="api-analyzer__subtitle">Application Insights statistics via managed identity</p>
+            </div>
+            @if (analytics.HasResult)
+            {
+                <span class="api-analyzer__badge api-analyzer__badge--live">Live telemetry</span>
+            }
+        </header>
+
+        <form method="get" class="api-analyzer__toolbar">
+            <div class="field field--grow">
+                <label for="WorkspaceIdSelect">Application Insights Workspace ID</label>
+                <select id="WorkspaceIdSelect" class="api-analyzer__select" autocomplete="off">
+                    <option value="/subscriptions/">DEV</option>
+                    <option value="/subscriptions/">PPE</option>
+                    <option value="">PROD</option>
+                    <option value="__custom__">Custom…</option>
+                </select>
+                <input type="text" id="WorkspaceIdCustom"
+                       class="api-analyzer__input" autocomplete="off"
+                       placeholder="Workspace ID GUID (or /subscriptions/... resource ID)" hidden />
+                <input type="hidden" id="WorkspaceId" name="WorkspaceId" value="@Model.WorkspaceId" />
+                <span class="field__hint">Pick a workspace or choose <strong>Custom…</strong> to paste your own ID.</span>
+            </div>
+            <div class="field">
+                <label for="ApiFilterSelect">API / operation <span class="field__opt">(optional)</span></label>
+                <select id="ApiFilterSelect" class="api-analyzer__select" autocomplete="off">
+                    <option value="">All operations</option>
+                    @foreach (var endpoint in analytics.Endpoints)
+                    {
+                        <option value="@endpoint.Name">@endpoint.Name</option>
+                    }
+                    <option value="__custom__">Custom…</option>
+                </select>
+                <input type="text" id="ApiFilterCustom"
+                       class="api-analyzer__input" autocomplete="off"
+                       placeholder="e.g. api/endpoint" hidden />
+                <input type="hidden" id="ApiFilter" name="ApiFilter" value="@Model.ApiFilter" />
+                <span class="field__hint">Pick an endpoint or choose <strong>Custom…</strong> for a contains match.</span>
+            </div>
+            <div class="field">
+                <label id="SourceLabel">Source <span class="field__opt">(optional)</span></label>
+                <div class="multiselect" id="SourceMulti">
+                    <button type="button" class="api-analyzer__select multiselect__trigger" id="SourceTrigger"
+                            aria-haspopup="true" aria-expanded="false" aria-labelledby="SourceLabel">
+                        <span class="multiselect__label" id="SourceTriggerLabel">All sources</span>
+                        <span class="multiselect__caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="multiselect__popover" id="SourcePopover" hidden>
+                        <div class="multiselect__search">
+                            <input type="text" id="SourceCustom" class="api-analyzer__input"
+                                   autocomplete="off" placeholder="Search or add a role…" />
+                            <button type="button" class="detail__action-btn" id="SourceAdd">Add</button>
+                        </div>
+                        <div class="multiselect__list" id="SourceList">
+                            @foreach (var src in analytics.AvailableSources)
+                            {
+                                <label class="multiselect__option">
+                                    <input type="checkbox" class="multiselect__check" value="@src" />
+                                    <span>@src</span>
+                                </label>
+                            }
+                        </div>
+                        <p class="multiselect__empty" id="SourceEmpty" hidden>No matching roles. Press <strong>Add</strong> to use it anyway.</p>
+                        <div class="multiselect__actions">
+                            <button type="button" class="multiselect__clear" id="SourceClear">Clear</button>
+                            <button type="button" class="api-analyzer__btn multiselect__done" id="SourceDone">Done</button>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="Source" name="Source" value="@Model.Source" />
+                <span class="field__hint">Pick one or more App Insights roles (<code>cloud_RoleName</code>).</span>
+            </div>
+            <div class="field">
+                <label>Time range</label>
+                <div class="timerange" id="timeRange">
+                    <button type="button" class="api-analyzer__select timerange__trigger" id="timeRangeBtn" aria-expanded="false" aria-haspopup="true">
+                        🕒 <span id="timeRangeBtnLabel">@(Model.HasCustomRange ? "Custom range" : $"Last {Model.WindowHours} h")</span>
+                    </button>
+                    <div class="timerange__popover" id="timeRangePopover" hidden></div>
+                </div>
+                <input type="hidden" id="WindowHours" name="WindowHours" value="@Model.WindowHours" />
+                <input type="hidden" id="CustomStart" name="CustomStart" value="@(Model.HasCustomRange ? Model.CustomStart!.Value.UtcDateTime.ToString("o") : "")" />
+                <input type="hidden" id="CustomEnd" name="CustomEnd" value="@(Model.HasCustomRange ? Model.CustomEnd!.Value.UtcDateTime.ToString("o") : "")" />
+            </div>
+            <button type="submit" class="api-analyzer__btn">Analyze</button>
+        </form>
+
+        @if (analytics.HasResult)
+        {
+            <section class="api-analyzer__cards">
+                <div class="metric-card">
+                    <p class="metric-card__label">Total Calls</p>
+                    <p class="metric-card__value">@summary.TotalCalls.ToString("N0")</p>
+                    <p class="metric-card__hint">over the last @Model.WindowHours h</p>
+                </div>
+                <div class="metric-card">
+                    <p class="metric-card__label">Success Rate</p>
+                    <p class="metric-card__value metric-card__value--success">@summary.SuccessRate.ToString("0.##")%</p>
+                    <p class="metric-card__hint">@summary.FailedCalls.ToString("N0") failed</p>
+                </div>
+                <div class="metric-card">
+                    <p class="metric-card__label">Avg Response</p>
+                    <p class="metric-card__value metric-card__value--accent">@summary.AverageDurationMs.ToString("N0") ms</p>
+                    <p class="metric-card__hint">@summary.P95DurationMs.ToString("N0") ms for slow requests</p>
+                </div>
+                <div class="metric-card">
+                    <p class="metric-card__label">Est. Cost</p>
+                    <p class="metric-card__value">$@summary.EstimatedCostUsd.ToString("N2")</p>
+                    <p class="metric-card__hint">estimated for window</p>
+                </div>
+            </section>
+
+            <section class="api-analyzer__panel">
+                <h2 class="api-analyzer__panel-title">
+                    Request Volume
+                    @if (!string.IsNullOrWhiteSpace(analytics.ApiFilter))
+                    {
+                        <span class="api-analyzer__panel-tag">@analytics.ApiFilter</span>
+                    }
+                </h2>
+                @if (analytics.Timeline.Count == 0)
+                {
+                    <p class="metric-card__hint">No request telemetry for this window.</p>
+                }
+                else
+                {
+                    <div class="linechart" id="lineChart" data-max-calls="@Model.MaxTimelineCalls">
+                        <div class="chart-tooltip" id="chartTooltip" role="status" aria-hidden="true"></div>
+                    </div>
+                    <div class="api-analyzer__timeline-meta">
+                        <span>@analytics.Timeline.First().Timestamp.ToLocalTime().ToString("g")</span>
+                        <span>peak @Model.MaxTimelineCalls.ToString("N0") calls/hr</span>
+                        <span>@analytics.Timeline.Last().Timestamp.ToLocalTime().ToString("g")</span>
+                    </div>
+                    <script type="application/json" id="timelineData">@Html.Raw(Model.TimelineJson)</script>
+                }
+            </section>
+
+            <section class="api-analyzer__panel">
+                <div class="api-analyzer__panel-head">
+                    <h2 class="api-analyzer__panel-title">Top Endpoints</h2>
+                    <span class="api-analyzer__panel-note">Click a row for details &amp; AI overview</span>
+                </div>
+                @if (analytics.Endpoints.Count == 0)
+                {
+                    <p class="metric-card__hint">No endpoint telemetry for this window.</p>
+                }
+                else
+                {
+                    <table class="api-table" id="endpointsTable">
+                        <thead>
+                            <tr>
+                                <th>Endpoint</th>
+                                <th class="num sortable" data-sort="calls" data-type="number">Calls<span class="sort-ind"></span></th>
+                                <th class="num sortable" data-sort="failed" data-type="number">Failed<span class="sort-ind"></span></th>
+                                <th class="num sortable" data-sort="avg" data-type="number">Avg (ms)<span class="sort-ind"></span></th>
+                                <th class="num sortable" data-sort="success" data-type="number">Success<span class="sort-ind"></span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var endpoint in analytics.Endpoints)
+                            {
+                                <tr class="api-table__row" data-endpoint="@endpoint.Name" tabindex="0"
+                                    data-calls="@endpoint.Calls" data-failed="@endpoint.FailedCalls"
+                                    data-avg="@endpoint.AverageDurationMs" data-success="@endpoint.SuccessRate">
+                                    <td class="api-table__name">
+                                        <span class="health-dot health-dot--@endpoint.Health.ToString().ToLower()"></span>
+                                        @endpoint.Name
+                                    </td>
+                                    <td class="num">@endpoint.Calls.ToString("N0")</td>
+                                    <td class="num">@endpoint.FailedCalls.ToString("N0")</td>
+                                    <td class="num">@endpoint.AverageDurationMs.ToString("N0")</td>
+                                    <td class="num">
+                                        <span class="@ApiAnalyzerViewModel.SuccessRatePillClass(endpoint.SuccessRate)">
+                                            @endpoint.SuccessRate.ToString("0.#")%
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+
+            <p class="api-analyzer__footnote">
+                Generated @analytics.GeneratedAt.ToLocalTime().ToString("f") for <code>@analytics.WorkspaceId</code>.
+            </p>
+        }
+        else
+        {
+            <section class="api-analyzer__empty">
+                <div class="api-analyzer__empty-icon">@@</div>
+                <h2 class="api-analyzer__empty-title">No data yet</h2>
+                <p class="api-analyzer__empty-text">
+                    @(string.IsNullOrEmpty(analytics.ErrorMessage)
+                        ? "Enter your Application Insights Workspace ID above, then select Analyze."
+                        : analytics.ErrorMessage)
+                </p>
+            </section>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/workspace-store.js" asp-append-version="true"></script>
+    <script src="~/js/time-range-picker.js" asp-append-version="true"></script>
+    <script src="~/js/api-analyzer.js" asp-append-version="true"></script>
+    <script>
+        (function () {
+            "use strict";
+            var CUSTOM = "__custom__";
+
+            // Turns a <select> + custom text input into a combo box that writes the
+            // effective value into a hidden field (the only control actually submitted).
+            function initCombo(selectId, customId, hiddenId) {
+                var select = document.getElementById(selectId);
+                var custom = document.getElementById(customId);
+                var hidden = document.getElementById(hiddenId);
+                if (!select || !custom || !hidden) { return null; }
+
+                function presetValues() {
+                    return Array.prototype.slice.call(select.options).map(function (o) { return o.value; });
+                }
+
+                function sync() {
+                    if (select.value === CUSTOM) {
+                        custom.hidden = false;
+                        hidden.value = custom.value.trim();
+                    } else {
+                        custom.hidden = true;
+                        hidden.value = select.value;
+                    }
+                }
+
+                // Reflect a value in the UI: match a preset, otherwise fall back to Custom.
+                function apply(value) {
+                    value = (value || "").trim();
+                    if (value && presetValues().indexOf(value) !== -1) {
+                        select.value = value;
+                    } else if (value) {
+                        select.value = CUSTOM;
+                        custom.value = value;
+                    } else {
+                        select.selectedIndex = 0;
+                    }
+                    sync();
+                }
+
+                select.addEventListener("change", function () {
+                    sync();
+                    if (select.value === CUSTOM) { custom.focus(); }
+                });
+                custom.addEventListener("input", function () {
+                    if (select.value === CUSTOM) { hidden.value = custom.value.trim(); }
+                });
+
+                apply(hidden.value);
+                return { select: select, custom: custom, hidden: hidden, apply: apply };
+            }
+
+            // Custom multi-select for Source: checkbox list whose checked roles are written to the
+            // hidden #Source field as a comma-separated value. The trigger summarizes the selection
+            // and carries a title tooltip listing every chosen role.
+            function initSourceMultiSelect() {
+                var root = document.getElementById("SourceMulti");
+                var trigger = document.getElementById("SourceTrigger");
+                var popover = document.getElementById("SourcePopover");
+                var list = document.getElementById("SourceList");
+                var hidden = document.getElementById("Source");
+                var labelEl = document.getElementById("SourceTriggerLabel");
+                if (!root || !trigger || !popover || !list || !hidden || !labelEl) { return; }
+
+                function selectedValues() {
+                    return Array.prototype.slice.call(list.querySelectorAll(".multiselect__check"))
+                        .filter(function (c) { return c.checked; })
+                        .map(function (c) { return c.value; });
+                }
+
+                function refresh() {
+                    var values = selectedValues();
+                    hidden.value = values.join(",");
+                    if (values.length === 0) {
+                        labelEl.textContent = "All sources";
+                        trigger.removeAttribute("title");
+                    } else if (values.length === 1) {
+                        labelEl.textContent = values[0];
+                        trigger.setAttribute("title", values[0]);
+                    } else {
+                        labelEl.textContent = values.length + " sources selected";
+                        // Hover tooltip listing every selected source, one per line.
+                        trigger.setAttribute("title", values.join("\n"));
+                    }
+                }
+
+                // Adds a checkbox row (used for custom values not in the discovered list).
+                function addOption(value, checked) {
+                    var label = document.createElement("label");
+                    label.className = "multiselect__option";
+                    var input = document.createElement("input");
+                    input.type = "checkbox";
+                    input.className = "multiselect__check";
+                    input.value = value;
+                    input.checked = !!checked;
+                    input.addEventListener("change", refresh);
+                    var span = document.createElement("span");
+                    span.textContent = value;
+                    label.appendChild(input);
+                    label.appendChild(span);
+                    list.appendChild(label);
+                    return input;
+                }
+
+                function findOption(value) {
+                    return Array.prototype.slice.call(list.querySelectorAll(".multiselect__check"))
+                        .filter(function (c) { return c.value === value; })[0];
+                }
+
+                list.querySelectorAll(".multiselect__check").forEach(function (c) {
+                    c.addEventListener("change", refresh);
+                });
+
+                // Echo-back: pre-check any roles present in the hidden value; add missing ones as rows.
+                (hidden.value ? hidden.value.split(",") : []).forEach(function (raw) {
+                    var v = raw.trim();
+                    if (!v) { return; }
+                    var existing = findOption(v);
+                    if (existing) { existing.checked = true; } else { addOption(v, true); }
+                });
+
+                // Search box: filters the visible options as you type, and adds a custom role
+                // (button or Enter) when what you typed isn't already in the list.
+                var customInput = document.getElementById("SourceCustom");
+                var addBtn = document.getElementById("SourceAdd");
+                var emptyHint = document.getElementById("SourceEmpty");
+
+                function applyFilter() {
+                    var q = (customInput.value || "").trim().toLowerCase();
+                    var anyVisible = false;
+                    list.querySelectorAll(".multiselect__option").forEach(function (opt) {
+                        var text = opt.textContent.trim().toLowerCase();
+                        var show = q === "" || text.indexOf(q) !== -1;
+                        opt.hidden = !show;
+                        if (show) { anyVisible = true; }
+                    });
+                    if (emptyHint) { emptyHint.hidden = anyVisible || q === ""; }
+                }
+
+                function addCustom() {
+                    var v = (customInput.value || "").trim();
+                    if (!v) { return; }
+                    var existing = findOption(v);
+                    if (existing) { existing.checked = true; } else { addOption(v, true); }
+                    customInput.value = "";
+                    applyFilter();
+                    refresh();
+                }
+                if (customInput) {
+                    customInput.addEventListener("input", applyFilter);
+                    customInput.addEventListener("keydown", function (ev) {
+                        if (ev.key === "Enter") { ev.preventDefault(); addCustom(); }
+                    });
+                }
+                if (addBtn) { addBtn.addEventListener("click", addCustom); }
+
+                document.getElementById("SourceClear").addEventListener("click", function () {
+                    list.querySelectorAll(".multiselect__check").forEach(function (c) { c.checked = false; });
+                    refresh();
+                });
+
+                function open() { popover.hidden = false; trigger.setAttribute("aria-expanded", "true"); }
+                function close() { popover.hidden = true; trigger.setAttribute("aria-expanded", "false"); }
+
+                trigger.addEventListener("click", function (ev) {
+                    ev.stopPropagation();
+                    if (popover.hidden) { open(); } else { close(); }
+                });
+                document.getElementById("SourceDone").addEventListener("click", close);
+                // Keep clicks inside the popover from bubbling to the document close handler.
+                popover.addEventListener("click", function (ev) { ev.stopPropagation(); });
+                document.addEventListener("click", function (ev) {
+                    if (!popover.hidden && !root.contains(ev.target)) { close(); }
+                });
+
+                refresh();
+            }
+
+            // Capture the server-provided workspace BEFORE the combo applies a default.
+            var hidden = document.getElementById("WorkspaceId");
+            var serverWorkspace = hidden ? hidden.value.trim() : "";
+
+            var workspace = initCombo("WorkspaceIdSelect", "WorkspaceIdCustom", "WorkspaceId");
+            initCombo("ApiFilterSelect", "ApiFilterCustom", "ApiFilter");
+            initSourceMultiSelect();
+
+            var form = document.querySelector(".api-analyzer__toolbar");
+            if (!form || !hidden || !workspace || !window.WorkspaceStore) { return; }
+
+            var hasResult = @(analytics.HasResult ? "true" : "false");
+
+            // Save the Workspace ID whenever the user analyzes.
+            form.addEventListener("submit", function () {
+                var v = hidden.value.trim();
+                if (v) { window.WorkspaceStore.set(v); }
+            });
+
+            // Prefill from IndexedDB. If the server had no workspace and we have a saved id,
+            // reflect it in the dropdown and auto-run so the user lands straight on their data.
+            if (!serverWorkspace) {
+                window.WorkspaceStore.get().then(function (saved) {
+                    if (saved && saved.trim()) {
+                        workspace.apply(saved.trim());
+                        if (!hasResult) { form.submit(); }
+                    }
+                });
+            }
+        })();
+    </script>
+}
